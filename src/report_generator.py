@@ -36,7 +36,7 @@ def save_report(report_text, images):
 
         elements.append(Spacer(1, 8))
 
-        # 🔥 attach relevant images immediately after section lines
+        # attach relevant images immediately after section lines
         matched = _images_for_section(current_section, images)
         if matched:
             for img in matched[:2]:

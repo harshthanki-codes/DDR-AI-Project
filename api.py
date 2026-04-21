@@ -15,7 +15,6 @@ def generate_report():
     def run():
         run_pipeline()
 
-    # run in background (non-blocking)
     threading.Thread(target=run).start()
 
     return {
