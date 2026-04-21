@@ -1,6 +1,7 @@
 import os
 from groq import Groq
 
+
 API_KEY = os.getenv("GROQ_API_KEY")
 
 if not API_KEY:
@@ -9,11 +10,8 @@ if not API_KEY:
 client = Groq(api_key=API_KEY)
 
 
+
 def fallback_report(inspection_text: str) -> str:
-    """
-    Used when AI fails or gives weak output.
-    Keeps structure intact so pipeline does not break.
-    """
     return f"""
 Detailed Diagnostic Report (DDR)
 
@@ -44,25 +42,17 @@ Not Available
 
 
 def _inject_conflict_signal(inspection_text: str, thermal_text: str, key_points: str) -> str:
-    """
-    Simple rule-based conflict detection.
-    Helps AI explicitly mention contradictions.
-    """
     insp = inspection_text.lower()
     therm = thermal_text.lower()
 
-    # Basic example rule (can be extended later)
     if ("damp" in insp or "moisture" in insp) and ("dry" in therm or "no moisture" in therm):
         key_points += "\nConflict Detected: Inspection suggests moisture presence, but thermal data indicates dry conditions."
 
     return key_points
 
 
+
 def _ensure_sections(report: str) -> str:
-    """
-    Ensures all required DDR sections exist.
-    Prevents missing sections in final output.
-    """
     required_sections = [
         "Executive Summary",
         "Property Issue Summary",
@@ -81,57 +71,55 @@ def _ensure_sections(report: str) -> str:
     return report
 
 
-def generate_ddr(inspection_text: str, thermal_text: str, key_points: str) -> str:
-    """
-    Main function to generate DDR using LLM.
-    """
 
-    # Limit input size to control token usage
+def generate_ddr(inspection_text: str, thermal_text: str, key_points: str) -> str:
+
+    
     inspection_text = inspection_text[:2000]
     thermal_text = thermal_text[:1000]
 
-    # Add conflict signals before sending to model
     key_points = _inject_conflict_signal(inspection_text, thermal_text, key_points)
 
     prompt = f"""
 You are generating a Detailed Diagnostic Report (DDR) for a residential property.
 
-Follow these rules strictly:
-- Do not add information that is not present
-- If something is missing, write "Not Available"
-- If data conflicts, clearly mention "Conflict Detected"
+STRICT RULES:
+- Do NOT invent information
+- If data is missing → write "Not Available"
+- If data conflicts → clearly mention "Conflict Detected"
 - Keep language simple and client-friendly
 
-Report Structure:
+STRUCTURE:
 
 Executive Summary:
-Brief overview of key findings.
+Brief overview.
 
 Property Issue Summary:
-List major issues identified.
+List key issues.
 
 Area-wise Observations:
-Describe issues area-wise.
-If image reference is possible, use:
+Group issues by area.
+If image available:
 "Refer Image: <image_name>"
-Otherwise write: "Image Not Available"
+Else:
+"Image Not Available"
 
 Probable Root Cause:
-Explain possible causes.
+Explain causes.
 
 Severity Assessment:
-Classify as Low / Medium / High with reasoning.
+Low / Medium / High with reasoning.
 
 Recommended Actions:
-Suggest corrective steps.
+Suggest fixes.
 
 Additional Notes:
-Any extra observations.
+Extra info.
 
 Missing or Unclear Information:
-Explicitly mention unavailable data.
+Mention missing data.
 
-Input Data:
+INPUT DATA:
 
 Key Observations:
 {key_points}
@@ -144,6 +132,8 @@ Thermal Report:
 """
 
     try:
+        print("Calling GROQ API...")
+
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
@@ -152,12 +142,14 @@ Thermal Report:
 
         report = response.choices[0].message.content.strip()
 
-        # Basic validation of output
+        # Validate output
         if not report or len(report) < 120:
+            print("⚠ Weak AI response → using fallback")
             return fallback_report(inspection_text)
 
+        print(" AI Report Generated Successfully")
         return _ensure_sections(report)
 
     except Exception as e:
-        print(f"AI generation failed: {e}")
+        print(f" AI generation failed: {e}")
         return fallback_report(inspection_text)
