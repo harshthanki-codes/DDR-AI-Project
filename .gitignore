@@ -1,0 +1,8 @@
+venvh13/
+__pycache__/
+*.pyc
+.env
+
+data/
+output/
+DDR-AI-Report-Generator/
