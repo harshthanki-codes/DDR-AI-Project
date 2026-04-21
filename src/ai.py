@@ -1,14 +1,45 @@
 import os
-from groq import Groq
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+if not OPENROUTER_API_KEY:
+    raise ValueError("OPENROUTER_API_KEY is not set. Please configure it in environment variables.")
 
 
-API_KEY = os.getenv("GROQ_API_KEY")
+def call_llm(prompt: str) -> str:
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "meta-llama/llama-3-8b-instruct",
 
-if not API_KEY:
-    raise ValueError("GROQ_API_KEY is not set. Please configure it in environment variables.")
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2
+            }
+        )
 
-client = Groq(api_key=API_KEY)
+        if response.status_code != 200:
+            raise Exception(f"HTTP Error {response.status_code}: {response.text}")
 
+        result = response.json()
+
+        if "choices" not in result:
+            raise Exception(f"LLM Error: {result}")
+
+        return result["choices"][0]["message"]["content"].strip()
+
+    except Exception as e:
+        raise Exception(f"LLM Call Failed: {e}")
 
 
 def fallback_report(inspection_text: str) -> str:
@@ -40,7 +71,6 @@ Missing or Unclear Information:
 Not Available
 """
 
-
 def _inject_conflict_signal(inspection_text: str, thermal_text: str, key_points: str) -> str:
     insp = inspection_text.lower()
     therm = thermal_text.lower()
@@ -49,7 +79,6 @@ def _inject_conflict_signal(inspection_text: str, thermal_text: str, key_points:
         key_points += "\nConflict Detected: Inspection suggests moisture presence, but thermal data indicates dry conditions."
 
     return key_points
-
 
 
 def _ensure_sections(report: str) -> str:
@@ -71,55 +100,55 @@ def _ensure_sections(report: str) -> str:
     return report
 
 
-
 def generate_ddr(inspection_text: str, thermal_text: str, key_points: str) -> str:
 
-    
+    # Limit size (important for token control)
     inspection_text = inspection_text[:2000]
     thermal_text = thermal_text[:1000]
 
     key_points = _inject_conflict_signal(inspection_text, thermal_text, key_points)
 
     prompt = f"""
-You are generating a Detailed Diagnostic Report (DDR) for a residential property.
+You are generating a HIGH-QUALITY Detailed Diagnostic Report (DDR).
 
 STRICT RULES:
-- Do NOT invent information
-- If data is missing → write "Not Available"
-- If data conflicts → clearly mention "Conflict Detected"
+- Do NOT invent facts
+- If missing → write "Not Available"
+- If conflict → clearly write "Conflict Detected"
 - Keep language simple and client-friendly
+- Avoid technical jargon
 
-STRUCTURE:
+STRUCTURE (VERY IMPORTANT):
 
 Executive Summary:
-Brief overview.
+Clear 3–4 line overview.
 
 Property Issue Summary:
-List key issues.
+Bullet points of key issues.
 
 Area-wise Observations:
-Group issues by area.
-If image available:
-"Refer Image: <image_name>"
-Else:
-"Image Not Available"
+Group by area (Hall, Kitchen, Bathroom etc.)
+Each must include:
+- Issue
+- Explanation
+- "Refer Image: <image_name>" OR "Image Not Available"
 
 Probable Root Cause:
-Explain causes.
+Explain logically.
 
 Severity Assessment:
-Low / Medium / High with reasoning.
+Low / Medium / High + reason.
 
 Recommended Actions:
-Suggest fixes.
+Step-by-step fixes.
 
 Additional Notes:
-Extra info.
+Extra insights.
 
 Missing or Unclear Information:
-Mention missing data.
+Explicit missing data.
 
-INPUT DATA:
+INPUT:
 
 Key Observations:
 {key_points}
@@ -132,24 +161,20 @@ Thermal Report:
 """
 
     try:
-        print("Calling GROQ API...")
+        print(" Calling OpenRouter API...")
 
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2
-        )
+        report = call_llm(prompt)
 
-        report = response.choices[0].message.content.strip()
+        print("AI Response Length:", len(report))
 
-        # Validate output
-        if not report or len(report) < 120:
-            print("⚠ Weak AI response → using fallback")
+        if not report or len(report) < 150:
+            print("⚠ Weak AI output → using fallback")
             return fallback_report(inspection_text)
 
-        print(" AI Report Generated Successfully")
+        print("AI Report Generated Successfully")
+
         return _ensure_sections(report)
 
     except Exception as e:
-        print(f" AI generation failed: {e}")
+        print(f"AI generation failed: {e}")
         return fallback_report(inspection_text)
